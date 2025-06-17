@@ -1,0 +1,15 @@
+run = "pip install pipenv && pipenv install && pipenv run server"
+entrypoint = "passage_of_time_mcp.py"
+
+[nix]
+channel = "stable-23_11"
+
+[deployment]
+run = ["sh", "-c", "pip install pipenv && pipenv install && pipenv run server"]
+
+[[ports]]
+localPort = 8000
+externalPort = 80
+
+[env]
+PYTHON_VERSION = "3.12"
