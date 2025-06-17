@@ -12,7 +12,7 @@ Instead of publishing a paper about how "silly" these models are at mental math,
 
 Through human-LLM collaboration, we discovered that with proper temporal tools, models can uncover surprising insights about conversation patterns, work rhythms, and the human experience of time.
 
-[Read the full story on Medium →]()
+[Read the full story on Medium →](https://medium.com/@jeremie.lumbroso/teaching-ai-the-significance-of-the-passage-of-time-yes-that-one-106ad7d20957)
 
 ## 🚀 Quick Start
 
@@ -310,7 +310,7 @@ Mozilla Public License 2.0 - because good ideas should spread while staying open
 
 ## 📚 Further Reading
 
-- [Teaching AI "The Significance of the Passage of Time" - Medium Article]()
+- [Teaching AI "The Significance of the Passage of Time" - Medium Article](https://medium.com/@jeremie.lumbroso/teaching-ai-the-significance-of-the-passage-of-time-yes-that-one-106ad7d20957)
 - [We Can't Understand AI Using our Existing Vocabulary - Been Kim et al.](https://arxiv.org/abs/2502.07586)
 - [Model Context Protocol Documentation](https://modelcontextprotocol.io)
 
