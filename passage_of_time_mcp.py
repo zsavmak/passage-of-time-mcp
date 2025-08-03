@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import Request, Response
 from fastmcp import FastMCP
 import datetime
 import pytz
@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 API_KEY = os.environ.get("MCP_API_KEY")
 
 mcp = FastMCP(
+    title="Authenticated MCP Server",
     name="Perception of Passage of Time",
     instructions='''You now have access to current_datetime() and can pass along an optional timezone parameter (defaults to NYC). You should call this at the start of every response, so you can get an appreciation for the user's passage of time.
 
@@ -23,6 +24,29 @@ To help you make computations about time, you have multiple other tools:
 IMPORTANT: All timestamps must use format "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD" for dates only. 
 Examples: "2024-01-15 14:30:00" or "2024-01-15". This ensures no ambiguity in parsing.'''
 )
+
+@mcp.middleware("http")
+async def check_api_key(request: Request, call_next):
+    """
+    This middleware intercepts every request. It checks for the X-API-Key header
+    and validates it against the environment variable.
+    """
+    if not API_KEY:
+        # If no API key is configured on the server, allow traffic for local dev.
+        return await call_next(request)
+
+    client_api_key = request.headers.get("X-API-Key")
+
+    if not client_api_key or client_api_key != API_KEY:
+        # If the key is missing or invalid, return a 401 Unauthorized error.
+        return Response(
+            content="Invalid or missing API Key",
+            status_code=401,
+            media_type="text/plain"
+        )
+    
+    # If the key is valid, proceed with the request.
+    return await call_next(request)
 
 
 def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_York") -> datetime:
@@ -439,35 +463,6 @@ def format_duration(
     except Exception as e:
         return f"Error formatting duration: {str(e)}"
 
-mcp_app = mcp.http_app()
-
-app = FastAPI(title="Authenticated MCP Server", lifespan=mcp_app.lifespan)
-
-@app.middleware("http")
-async def check_api_key(request: Request, call_next):
-    """
-    This middleware intercepts every request. It checks for the X-API-Key header
-    and validates it against the environment variable.
-    """
-    if not API_KEY:
-        # If no API key is configured on the server, allow traffic for local dev.
-        return await call_next(request)
-
-    client_api_key = request.headers.get("X-API-Key")
-
-    if not client_api_key or client_api_key != API_KEY:
-        # If the key is missing or invalid, return a 401 Unauthorized error.
-        return Response(
-            content="Invalid or missing API Key",
-            status_code=401,
-            media_type="text/plain"
-        )
-    
-    # If the key is valid, proceed with the request.
-    return await call_next(request)
-
-app.mount("/mcp", mcp_app)
-
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
@@ -478,7 +473,7 @@ if __name__ == "__main__":
         print("WARNING: Authentication is DISABLED. Server is open.")
         
     uvicorn.run(
-        app,
+        mcp,
         host="0.0.0.0",
         port=port,
         log_level="debug"
