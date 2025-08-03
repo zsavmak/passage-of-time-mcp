@@ -1,34 +1,39 @@
+from fastapi import FastAPI, Request, Response
 from fastmcp import FastMCP
 import datetime
 import pytz
 import os
 from typing import Dict, Union, Optional, Literal
 from datetime import datetime, timedelta
-from fastapi import Request, Response
 
 API_KEY = os.environ.get("MCP_API_KEY")
 
-class AuthenticatedFastMCP(FastMCP):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+app = FastAPI(title="Authenticated MCP Server")
 
-        @self.app.middleware("http")
-        async def check_api_key(request: Request, call_next):
-            if not API_KEY:
-                return await call_next(request)
+@app.middleware("http")
+async def check_api_key(request: Request, call_next):
+    """
+    This middleware intercepts every request. It checks for the X-API-Key header
+    and validates it against the environment variable.
+    """
+    if not API_KEY:
+        # If no API key is configured on the server, allow traffic for local dev.
+        return await call_next(request)
 
-            client_api_key = request.headers.get("X-API-Key")
+    client_api_key = request.headers.get("X-API-Key")
 
-            if not client_api_key or client_api_key != API_KEY:
-                return Response(
-                    content="Invalid or missing API Key",
-                    status_code=401,
-                    media_type="text/plain"
-                )
-            
-            return await call_next(request)
+    if not client_api_key or client_api_key != API_KEY:
+        # If the key is missing or invalid, return a 401 Unauthorized error.
+        return Response(
+            content="Invalid or missing API Key",
+            status_code=401,
+            media_type="text/plain"
+        )
+    
+    # If the key is valid, proceed with the request.
+    return await call_next(request)
 
-mcp = AuthenticatedFastMCP(
+mcp = FastMCP(
     name="Perception of Passage of Time",
     instructions='''You now have access to current_datetime() and can pass along an optional timezone parameter (defaults to NYC). You should call this at the start of every response, so you can get an appreciation for the user's passage of time.
 
@@ -44,7 +49,14 @@ IMPORTANT: All timestamps must use format "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD" 
 Examples: "2024-01-15 14:30:00" or "2024-01-15". This ensures no ambiguity in parsing.'''
 )
 
+
 def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_York") -> datetime:
+    """
+    Parse a timestamp in our standard format.
+    Accepts: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
+    
+    Raises ValueError with clear message if format is invalid.
+    """
     tz = pytz.timezone(timezone)
     timestamp_str = timestamp_str.strip()
     
@@ -77,6 +89,17 @@ def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_Yo
 
 @mcp.tool()
 def current_datetime(timezone: str = "America/New_York") -> str:
+    """
+    Returns the current date and time as a string.
+    If you are asked for the current date or time, call this function.
+    
+    Args:
+        timezone: Timezone name (e.g., 'UTC', 'US/Pacific', 'Europe/London').
+        Defaults to 'America/New_York'.
+    
+    Returns:
+        A formatted date and time string in format: YYYY-MM-DD HH:MM:SS TZ
+    """
     try:
         tz = pytz.timezone(timezone)
         now = datetime.now(tz)
@@ -91,6 +114,24 @@ def time_difference(
     unit: Literal["auto", "seconds", "minutes", "hours", "days"] = "auto",
     timezone: str = "America/New_York"
 ) -> Dict[str, Union[int, float, str, bool]]:
+    """
+    Calculate the time difference between two timestamps.
+    
+    Timestamps must be in format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
+    
+    Args:
+        timestamp1: First timestamp (earlier time expected)
+        timestamp2: Second timestamp (later time expected)
+        unit: Desired unit for the result. "auto" provides multiple formats
+        timezone: Timezone for parsing ambiguous timestamps
+    
+    Returns:
+        Dictionary containing:
+        - seconds: Total difference in seconds
+        - formatted: Human-readable format (e.g., "3 hours, 10 minutes")
+        - requested_unit: Difference in the requested unit (if not "auto")
+        - is_negative: Boolean indicating if timestamp1 > timestamp2
+    """
     try:
         dt1 = parse_standard_timestamp(timestamp1, timezone)
         dt2 = parse_standard_timestamp(timestamp2, timezone)
@@ -140,25 +181,30 @@ def time_difference(
         return result
         
     except ValueError as e:
-        return {
-            "error": str(e),
-            "seconds": 0,
-            "formatted": "Error parsing timestamps",
-            "is_negative": False
-        }
+        return { "error": str(e), "seconds": 0, "formatted": "Error", "is_negative": False }
     except Exception as e:
-        return {
-            "error": f"Unexpected error: {str(e)}",
-            "seconds": 0,
-            "formatted": "Error parsing timestamps",
-            "is_negative": False
-        }
+        return { "error": f"Unexpected error: {str(e)}", "seconds": 0, "formatted": "Error", "is_negative": False }
 
 @mcp.tool()
 def time_since(
     timestamp: str,
     timezone: str = "America/New_York"
 ) -> Dict[str, Union[int, float, str]]:
+    """
+    Calculate time elapsed since a given timestamp until now.
+    
+    Timestamp must be in format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
+    
+    Args:
+        timestamp: Past timestamp to compare against current time
+        timezone: Timezone for parsing and current time
+    
+    Returns:
+        Dictionary containing:
+        - seconds: Seconds elapsed (negative if timestamp is in future)
+        - formatted: Human-readable format (e.g., "2 days, 3 hours ago")
+        - context: Contextual description (e.g., "earlier today", "yesterday")
+    """
     try:
         tz = pytz.timezone(timezone)
         now = datetime.now(tz)
@@ -167,12 +213,7 @@ def time_since(
         diff = time_difference(timestamp, now_str, unit="auto", timezone=timezone)
         
         if "error" in diff:
-            return {
-                "error": diff.get("error", "Unknown error in time_difference"),
-                "seconds": 0,
-                "formatted": "Error calculating time since",
-                "context": "unknown"
-            }
+            return { "error": diff.get("error", "Error"), "seconds": 0, "formatted": "Error", "context": "unknown" }
         
         seconds = diff["seconds"]
         abs_seconds = abs(seconds)
@@ -180,48 +221,22 @@ def time_since(
         dt = parse_standard_timestamp(timestamp, timezone)
         
         context = ""
-        if seconds < 0:
-            context = "in the future"
-        elif abs_seconds < 60:
-            context = "just now"
-        elif abs_seconds < 3600:
-            context = "earlier"
-        elif abs_seconds < 86400:
-            if dt.date() == now.date():
-                context = "earlier today"
-            else:
-                context = "yesterday"
-        elif abs_seconds < 172800:
-            context = "yesterday"
-        elif abs_seconds < 604800:
-            context = "this week"
-        elif abs_seconds < 2592000:
-            context = "this month"
-        else:
-            context = "a while ago"
+        if seconds < 0: context = "in the future"
+        elif abs_seconds < 60: context = "just now"
+        elif abs_seconds < 3600: context = "earlier"
+        elif abs_seconds < 86400: context = "earlier today" if dt.date() == now.date() else "yesterday"
+        elif abs_seconds < 172800: context = "yesterday"
+        elif abs_seconds < 604800: context = "this week"
+        else: context = "a while ago"
         
         formatted = diff["formatted"] + (" ago" if seconds >= 0 else " from now")
         
-        return {
-            "seconds": seconds,
-            "formatted": formatted,
-            "context": context
-        }
+        return { "seconds": seconds, "formatted": formatted, "context": context }
         
     except ValueError as e:
-        return {
-            "error": str(e),
-            "seconds": 0,
-            "formatted": "Error calculating time since",
-            "context": "unknown"
-        }
+        return { "error": str(e), "seconds": 0, "formatted": "Error", "context": "unknown" }
     except Exception as e:
-        return {
-            "error": f"Unexpected error: {str(e)}",
-            "seconds": 0,
-            "formatted": "Error calculating time since",
-            "context": "unknown"
-        }
+        return { "error": f"Unexpected error: {str(e)}", "seconds": 0, "formatted": "Error", "context": "unknown" }
 
 @mcp.tool()
 def parse_timestamp(
@@ -229,6 +244,26 @@ def parse_timestamp(
     source_timezone: Optional[str] = None,
     target_timezone: str = "America/New_York"
 ) -> Dict[str, str]:
+    """
+    Parse and convert a timestamp to multiple formats.
+    
+    Timestamp must be in format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
+    
+    Args:
+        timestamp: Timestamp string in standard format
+        source_timezone: Timezone of the input (if None, uses target_timezone)
+        target_timezone: Desired output timezone
+    
+    Returns:
+        Dictionary containing:
+        - iso: ISO 8601 format
+        - unix: Unix timestamp (seconds since epoch)
+        - human: Human-friendly format
+        - timezone: Timezone name
+        - day_of_week: Full day name
+        - date: Date only (YYYY-MM-DD)
+        - time: Time only (HH:MM:SS)
+    """
     try:
         parse_tz = source_timezone or target_timezone
         dt = parse_standard_timestamp(timestamp, parse_tz)
@@ -248,27 +283,9 @@ def parse_timestamp(
         }
         
     except ValueError as e:
-        return {
-            "error": str(e),
-            "iso": "",
-            "unix": "",
-            "human": "Error parsing timestamp",
-            "timezone": target_timezone,
-            "day_of_week": "",
-            "date": "",
-            "time": ""
-        }
+        return { "error": str(e), "iso": "", "unix": "", "human": "Error" }
     except Exception as e:
-        return {
-            "error": f"Unexpected error: {str(e)}",
-            "iso": "",
-            "unix": "",
-            "human": "Error parsing timestamp",
-            "timezone": target_timezone,
-            "day_of_week": "",
-            "date": "",
-            "time": ""
-        }
+        return { "error": f"Unexpected error: {str(e)}", "iso": "", "unix": "", "human": "Error" }
 
 @mcp.tool()
 def add_time(
@@ -277,125 +294,105 @@ def add_time(
     unit: Literal["seconds", "minutes", "hours", "days", "weeks"],
     timezone: str = "America/New_York"
 ) -> Dict[str, str]:
+    """
+    Add a duration to a timestamp.
+    
+    Timestamp must be in format: "YYYY-MM-DD HH:MM:S" or "YYYY-MM-DD"
+    
+    Args:
+        timestamp: Starting timestamp in standard format
+        duration: Amount to add (can be negative to subtract)
+        unit: Unit of the duration
+        timezone: Timezone for calculations
+    
+    Returns:
+        Dictionary containing:
+        - result: Resulting timestamp in same format as input
+        - iso: ISO 8601 format of result
+        - description: Natural language description (e.g., "tomorrow at 3:00 PM")
+    """
     try:
         tz = pytz.timezone(timezone)
         dt = parse_standard_timestamp(timestamp, timezone)
         
         is_date_only = ":" not in timestamp
         
-        if unit == "seconds":
-            delta = timedelta(seconds=duration)
-        elif unit == "minutes":
-            delta = timedelta(minutes=duration)
-        elif unit == "hours":
-            delta = timedelta(hours=duration)
-        elif unit == "days":
-            delta = timedelta(days=duration)
-        elif unit == "weeks":
-            delta = timedelta(weeks=duration)
-        else:
-            raise ValueError(f"Invalid unit: {unit}")
+        delta = timedelta(**{unit: duration})
         
         result_dt = dt + delta
         
         now = datetime.now(tz)
         days_diff = (result_dt.date() - now.date()).days
         
-        if days_diff == 0:
-            day_desc = "today"
-        elif days_diff == 1:
-            day_desc = "tomorrow"
-        elif days_diff == -1:
-            day_desc = "yesterday"
-        elif days_diff > 1 and days_diff <= 7:
-            day_desc = f"next {result_dt.strftime('%A')}"
-        elif days_diff < -1 and days_diff >= -7:
-            day_desc = f"last {result_dt.strftime('%A')}"
-        else:
-            day_desc = result_dt.strftime("%B %d, %Y")
+        if days_diff == 0: day_desc = "today"
+        elif days_diff == 1: day_desc = "tomorrow"
+        elif days_diff == -1: day_desc = "yesterday"
+        else: day_desc = result_dt.strftime("%B %d, %Y")
         
         time_desc = result_dt.strftime("%I:%M %p").lstrip("0")
         description = f"{day_desc} at {time_desc}" if not is_date_only else day_desc
         
-        if is_date_only:
-            result_str = result_dt.strftime("%Y-%m-%d")
-        else:
-            result_str = result_dt.strftime("%Y-%m-%d %H:%M:%S")
+        result_str = result_dt.strftime("%Y-%m-%d" if is_date_only else "%Y-%m-%d %H:%M:%S")
         
-        return {
-            "result": result_str,
-            "iso": result_dt.isoformat(),
-            "description": description
-        }
+        return { "result": result_str, "iso": result_dt.isoformat(), "description": description }
         
     except ValueError as e:
-        return {
-            "error": str(e),
-            "result": "Error adding time",
-            "iso": "",
-            "description": "Error calculating result"
-        }
+        return { "error": str(e), "result": "Error" }
     except Exception as e:
-        return {
-            "error": f"Unexpected error: {str(e)}",
-            "result": "Error adding time",
-            "iso": "",
-            "description": "Error calculating result"
-        }
+        return { "error": f"Unexpected error: {str(e)}", "result": "Error" }
 
 @mcp.tool()
 def timestamp_context(
     timestamp: str,
     timezone: str = "America/New_York"
 ) -> Dict[str, Union[str, bool, int]]:
+    """
+    Provide contextual information about a timestamp.
+    
+    Timestamp must be in format: "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
+    
+    Args:
+        timestamp: Timestamp to analyze in standard format
+        timezone: Timezone for context
+    
+    Returns:
+        Dictionary containing:
+        - time_of_day: "early_morning", "morning", "afternoon", "evening", "late_night"
+        - day_of_week: Full day name
+        - is_weekend: Boolean
+        - is_business_hours: Boolean (Mon-Fri 9-5)
+        - hour_24: Hour in 24-hour format
+        - typical_activity: Contextual description (e.g., "lunch_time", "commute_time")
+        - relative_day: "today", "yesterday", "tomorrow", or None
+    """
     try:
         tz = pytz.timezone(timezone)
         dt = parse_standard_timestamp(timestamp, timezone)
         now = datetime.now(tz)
-        
         hour = dt.hour
         
-        if 5 <= hour < 9:
-            time_of_day = "early_morning"
-        elif 9 <= hour < 12:
-            time_of_day = "morning"
-        elif 12 <= hour < 17:
-            time_of_day = "afternoon"
-        elif 17 <= hour < 21:
-            time_of_day = "evening"
-        else:
-            time_of_day = "late_night"
+        if 5 <= hour < 9: time_of_day = "early_morning"
+        elif 9 <= hour < 12: time_of_day = "morning"
+        elif 12 <= hour < 17: time_of_day = "afternoon"
+        elif 17 <= hour < 21: time_of_day = "evening"
+        else: time_of_day = "late_night"
         
         day_of_week = dt.strftime("%A")
         is_weekend = dt.weekday() >= 5
+        is_business_hours = (not is_weekend and 9 <= hour < 17)
         
-        is_business_hours = (
-            not is_weekend and 
-            9 <= hour < 17
-        )
-        
-        if 6 <= hour < 9:
-            typical_activity = "commute_time"
-        elif 12 <= hour < 13:
-            typical_activity = "lunch_time"
-        elif 17 <= hour < 19:
-            typical_activity = "commute_time"
-        elif 19 <= hour < 21:
-            typical_activity = "dinner_time"
-        elif 22 <= hour or hour < 6:
-            typical_activity = "sleeping_time"
-        else:
-            typical_activity = "work_time" if is_business_hours else "leisure_time"
+        if 6 <= hour < 9: typical_activity = "commute_time"
+        elif 12 <= hour < 13: typical_activity = "lunch_time"
+        elif 17 <= hour < 19: typical_activity = "commute_time"
+        elif 19 <= hour < 21: typical_activity = "dinner_time"
+        elif 22 <= hour or hour < 6: typical_activity = "sleeping_time"
+        else: typical_activity = "work_time" if is_business_hours else "leisure_time"
         
         days_diff = (dt.date() - now.date()).days
-        if days_diff == 0:
-            relative_day = "today"
-        elif days_diff == -1:
-            relative_day = "yesterday"
-        elif days_diff == 1:
-            relative_day = "tomorrow"
-        else:
-            relative_day = None
+        if days_diff == 0: relative_day = "today"
+        elif days_diff == -1: relative_day = "yesterday"
+        elif days_diff == 1: relative_day = "tomorrow"
+        else: relative_day = None
         
         return {
             "time_of_day": time_of_day,
@@ -406,38 +403,31 @@ def timestamp_context(
             "typical_activity": typical_activity,
             "relative_day": relative_day
         }
-        
     except ValueError as e:
-        return {
-            "error": str(e),
-            "time_of_day": "unknown",
-            "day_of_week": "",
-            "is_weekend": False,
-            "is_business_hours": False,
-            "hour_24": 0,
-            "typical_activity": "unknown",
-            "relative_day": None
-        }
+        return { "error": str(e) }
     except Exception as e:
-        return {
-            "error": f"Unexpected error: {str(e)}",
-            "time_of_day": "unknown",
-            "day_of_week": "",
-            "is_weekend": False,
-            "is_business_hours": False,
-            "hour_24": 0,
-            "typical_activity": "unknown",
-            "relative_day": None
-        }
+        return { "error": f"Unexpected error: {str(e)}" }
 
 @mcp.tool()
 def format_duration(
     seconds: Union[int, float],
     style: Literal["full", "compact", "minimal"] = "full"
 ) -> str:
+    """
+    Format a duration in seconds into human-readable text.
+    
+    Args:
+        seconds: Duration in seconds (can be negative)
+        style: Format style
+            - "full": "2 hours, 30 minutes, 15 seconds"
+            - "compact": "2h 30m 15s"
+            - "minimal": "2:30:15"
+    
+    Returns:
+        Formatted duration string
+    """
     try:
         seconds = float(seconds)
-        
         is_negative = seconds < 0
         abs_seconds = abs(seconds)
         
@@ -448,37 +438,24 @@ def format_duration(
         
         if style == "full":
             parts = []
-            if days > 0:
-                parts.append(f"{days} day{'s' if days != 1 else ''}")
-            if hours > 0:
-                parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-            if minutes > 0:
-                parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
-            if secs > 0 or not parts:
-                parts.append(f"{secs} second{'s' if secs != 1 else ''}")
+            if days > 0: parts.append(f"{days} day{'s' if days != 1 else ''}")
+            if hours > 0: parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+            if minutes > 0: parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+            if secs > 0 or not parts: parts.append(f"{secs} second{'s' if secs != 1 else ''}")
             result = ", ".join(parts)
-            
         elif style == "compact":
             parts = []
-            if days > 0:
-                parts.append(f"{days}d")
-            if hours > 0:
-                parts.append(f"{hours}h")
-            if minutes > 0:
-                parts.append(f"{minutes}m")
-            if secs > 0 or not parts:
-                parts.append(f"{secs}s")
+            if days > 0: parts.append(f"{days}d")
+            if hours > 0: parts.append(f"{hours}h")
+            if minutes > 0: parts.append(f"{minutes}m")
+            if secs > 0 or not parts: parts.append(f"{secs}s")
             result = " ".join(parts)
-            
         elif style == "minimal":
-            if days > 0:
-                result = f"{days}:{hours:02d}:{minutes:02d}:{secs:02d}"
-            elif hours > 0:
-                result = f"{hours}:{minutes:02d}:{secs:02d}"
-            else:
-                result = f"{minutes}:{secs:02d}"
+            if days > 0: result = f"{days}:{hours:02d}:{minutes:02d}:{secs:02d}"
+            elif hours > 0: result = f"{hours}:{minutes:02d}:{secs:02d}"
+            else: result = f"{minutes}:{secs:02d}"
         else:
-            raise ValueError(f"Invalid style: {style}. Must be 'full', 'compact', or 'minimal'")
+            raise ValueError(f"Invalid style: {style}")
         
         return f"-{result}" if is_negative else result
         
@@ -487,8 +464,10 @@ def format_duration(
     except Exception as e:
         return f"Error formatting duration: {str(e)}"
 
+app.mount("/", mcp)
+
 if __name__ == "__main__":
-    import asyncio
+    import uvicorn
     port = int(os.environ.get("PORT", 8000))
     print(f"Starting MCP server on http://0.0.0.0:{port}")
     if API_KEY:
@@ -496,10 +475,9 @@ if __name__ == "__main__":
     else:
         print("WARNING: Authentication is DISABLED. Server is open.")
         
-    asyncio.run(
-        mcp.run_sse_async(
-            host="0.0.0.0",
-            port=port,
-            log_level="debug"
-        )
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="debug"
     )
