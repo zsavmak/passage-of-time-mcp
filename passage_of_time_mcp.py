@@ -439,7 +439,7 @@ def format_duration(
     except Exception as e:
         return f"Error formatting duration: {str(e)}"
 
-mcp_app = mcp.http_app(path='/mcp')
+mcp_app = mcp.http_app()
 
 app = FastAPI(title="Authenticated MCP Server", lifespan=mcp_app.lifespan)
 
@@ -466,7 +466,7 @@ async def check_api_key(request: Request, call_next):
     # If the key is valid, proceed with the request.
     return await call_next(request)
 
-app.mount("/llm", mcp_app)
+app.mount("/mcp", mcp_app)
 
 if __name__ == "__main__":
     import uvicorn
