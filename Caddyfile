@@ -1,0 +1,71 @@
+# Caddyfile for Passage of Time MCP Server
+#
+# This configuration provides a secure, production-ready setup for the MCP server.
+# It handles automatic HTTPS, sets security headers provides custom error pages,
+# and custom logging
+
+# This block sets default options for all sites defined in this Caddyfile.
+{
+    # Automatic HTTPS configuration
+    #auto_https off # Set to `off` for local testing, Caddy will use its own certs. For production, remove this line.
+
+    # Default logging configuration
+    log {
+        output file ./logs/caddy.log {
+            roll_size 10mb      # Rotate logs after 10 MB
+            roll_keep 5         # Keep 5 rotated log files
+            roll_keep_for 720h  # Keep logs for 30 days
+        }
+        level  INFO
+        format console
+    }
+
+    # Order of directives
+    order encode before respond
+}
+# Replace mcp.your_domain.com with your actual domain name in production.
+# For local testing, you can use localhost.
+mcp.your_domain.com {
+
+    # More detailed logging for this specific site
+    log {
+        output file ./logs/mcp_access.log {
+            roll_size 5mb
+            roll_keep 10
+        }
+        level DEBUG 
+    }
+
+    # Add security-enhancing headers to all responses.
+    header {
+        # Prevents clickjacking attacks
+        X-Frame-Options "DENY"
+        # Prevents MIME-sniffing attacks
+        X-Content-Type-Options "nosniff"
+        # Enables XSS protection in modern browsers
+        X-XSS-Protection "1; mode=block"
+        # Strict Transport Security (HSTS) - tells browsers to always use HTTPS
+        # IMPORTANT: Only enable HSTS once you are sure HTTPS is working correctly.
+        # Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Content Security Policy (CSP) - helps prevent XSS attacks
+        # This is a restrictive policy; you may need to adjust it if you add other resources.
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none';"
+    }
+
+    # Enable Gzip and Zstandard compression for better performance.
+    encode zstd gzip
+
+    handle_errors {
+        respond "{\"error\": \"An error occurred: {http.error.status_code} {http.error.status_text}\"}" {http.error.status_code} 
+        header Content-Type application/json
+    }
+
+    # Forward all requests to the locally running MCP server on port 8000.
+    reverse_proxy localhost:8000 {
+        header_up Host {host}
+        # Pass the real client IP address to the backend server
+        header_up X-Real-IP {remote_ip}
+        header_up X-Forwarded-For {remote_ip}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
