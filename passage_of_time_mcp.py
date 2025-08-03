@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 API_KEY = os.environ.get("MCP_API_KEY")
 
 mcp = FastMCP(
-    title="Authenticated MCP Server",
     name="Perception of Passage of Time",
     instructions='''You now have access to current_datetime() and can pass along an optional timezone parameter (defaults to NYC). You should call this at the start of every response, so you can get an appreciation for the user's passage of time.
 
