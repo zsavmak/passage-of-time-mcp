@@ -24,7 +24,7 @@ IMPORTANT: All timestamps must use format "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD" 
 Examples: "2024-01-15 14:30:00" or "2024-01-15". This ensures no ambiguity in parsing.'''
 )
 
-@mcp.middleware("http")
+
 async def check_api_key(request: Request, call_next):
     """
     This middleware intercepts every request. It checks for the X-API-Key header
@@ -46,6 +46,8 @@ async def check_api_key(request: Request, call_next):
     
     # If the key is valid, proceed with the request.
     return await call_next(request)
+
+mcp.middleware.use(check_api_key)
 
 
 def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_York") -> datetime:
