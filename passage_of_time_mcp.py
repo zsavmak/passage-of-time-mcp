@@ -8,31 +8,6 @@ from datetime import datetime, timedelta
 
 API_KEY = os.environ.get("MCP_API_KEY")
 
-app = FastAPI(title="Authenticated MCP Server")
-
-@app.middleware("http")
-async def check_api_key(request: Request, call_next):
-    """
-    This middleware intercepts every request. It checks for the X-API-Key header
-    and validates it against the environment variable.
-    """
-    if not API_KEY:
-        # If no API key is configured on the server, allow traffic for local dev.
-        return await call_next(request)
-
-    client_api_key = request.headers.get("X-API-Key")
-
-    if not client_api_key or client_api_key != API_KEY:
-        # If the key is missing or invalid, return a 401 Unauthorized error.
-        return Response(
-            content="Invalid or missing API Key",
-            status_code=401,
-            media_type="text/plain"
-        )
-    
-    # If the key is valid, proceed with the request.
-    return await call_next(request)
-
 mcp = FastMCP(
     name="Perception of Passage of Time",
     instructions='''You now have access to current_datetime() and can pass along an optional timezone parameter (defaults to NYC). You should call this at the start of every response, so you can get an appreciation for the user's passage of time.
@@ -465,6 +440,32 @@ def format_duration(
         return f"Error formatting duration: {str(e)}"
 
 mcp_app = mcp.http_app(path='/mcp')
+
+app = FastAPI(title="Authenticated MCP Server", lifespan=mcp_app.lifespan)
+
+@app.middleware("http")
+async def check_api_key(request: Request, call_next):
+    """
+    This middleware intercepts every request. It checks for the X-API-Key header
+    and validates it against the environment variable.
+    """
+    if not API_KEY:
+        # If no API key is configured on the server, allow traffic for local dev.
+        return await call_next(request)
+
+    client_api_key = request.headers.get("X-API-Key")
+
+    if not client_api_key or client_api_key != API_KEY:
+        # If the key is missing or invalid, return a 401 Unauthorized error.
+        return Response(
+            content="Invalid or missing API Key",
+            status_code=401,
+            media_type="text/plain"
+        )
+    
+    # If the key is valid, proceed with the request.
+    return await call_next(request)
+
 app.mount("/llm", mcp_app)
 
 if __name__ == "__main__":
