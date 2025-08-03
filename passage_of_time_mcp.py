@@ -1,6 +1,6 @@
 from fastapi import Request, Response
 from fastmcp import FastMCP
-from fastmcp.server.http_helpers import get_http_headers
+from fastmcp import get_http_headers
 import datetime
 import pytz
 import os
