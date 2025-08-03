@@ -1,5 +1,6 @@
 from fastapi import Request, Response
 from fastmcp import FastMCP
+from fastmcp.server.http_helpers import get_http_headers
 import datetime
 import pytz
 import os
@@ -35,7 +36,8 @@ async def check_api_key(request: Request, call_next):
         # If no API key is configured on the server, allow traffic for local dev.
         return await call_next(request)
 
-    client_api_key = request.headers.get("X-API-Key")
+    headers = get_http_headers()
+    client_api_key = headers.get("x-api-key")
 
     if not client_api_key or client_api_key != API_KEY:
         # If the key is missing or invalid, return a 401 Unauthorized error.
