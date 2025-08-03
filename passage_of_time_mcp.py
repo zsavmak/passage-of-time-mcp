@@ -464,7 +464,7 @@ def format_duration(
     except Exception as e:
         return f"Error formatting duration: {str(e)}"
 
-app.mount("/", mcp)
+app.include_router(mcp.router, prefix="/")
 
 if __name__ == "__main__":
     import uvicorn
