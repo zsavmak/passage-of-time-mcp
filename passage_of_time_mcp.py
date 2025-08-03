@@ -1,6 +1,8 @@
-from fastapi import Request, Response
 from fastmcp import FastMCP
-from fastmcp import get_http_headers
+from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.dependencies import get_http_headers
+from mcp import McpError
+from mcp.types import ErrorData
 import datetime
 import pytz
 import os
@@ -27,30 +29,20 @@ Examples: "2024-01-15 14:30:00" or "2024-01-15". This ensures no ambiguity in pa
 )
 
 
-async def check_api_key(request: Request, call_next):
-    """
-    This middleware intercepts every request. It checks for the X-API-Key header
-    and validates it against the environment variable.
-    """
-    if not API_KEY:
-        # If no API key is configured on the server, allow traffic for local dev.
-        return await call_next(request)
+class ApiKeyMiddleware(Middleware):
+    async def on_request(self, context: MiddlewareContext, call_next):
+        if not API_KEY:
+            return await call_next(context)
 
-    headers = get_http_headers()
-    client_api_key = headers.get("x-api-key")
+        headers = get_http_headers()
+        client_api_key = headers.get("x-api-key")
 
-    if not client_api_key or client_api_key != API_KEY:
-        # If the key is missing or invalid, return a 401 Unauthorized error.
-        return Response(
-            content="Invalid or missing API Key",
-            status_code=401,
-            media_type="text/plain"
-        )
-    
-    # If the key is valid, proceed with the request.
-    return await call_next(request)
+        if not client_api_key or client_api_key != API_KEY:
+            raise McpError(ErrorData(code=-32000, message="Invalid or missing API Key"))
+        
+        return await call_next(context)
 
-mcp.middleware.append(check_api_key)
+mcp.add_middleware(ApiKeyMiddleware())
 
 
 def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_York") -> datetime:
