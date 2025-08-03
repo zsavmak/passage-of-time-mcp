@@ -47,7 +47,7 @@ async def check_api_key(request: Request, call_next):
     # If the key is valid, proceed with the request.
     return await call_next(request)
 
-mcp.middleware.use(check_api_key)
+mcp.middleware.append(check_api_key)
 
 
 def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_York") -> datetime:
