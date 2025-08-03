@@ -5,6 +5,7 @@ import pytz
 import os
 from typing import Dict, Union, Optional, Literal
 from datetime import datetime, timedelta
+import asyncio
 
 API_KEY = os.environ.get("MCP_API_KEY")
 
@@ -465,7 +466,7 @@ def format_duration(
         return f"Error formatting duration: {str(e)}"
 
 if __name__ == "__main__":
-    import uvicorn
+    import asyncio
     port = int(os.environ.get("PORT", 8000))
     print(f"Starting MCP server on http://0.0.0.0:{port}")
     if API_KEY:
@@ -473,9 +474,10 @@ if __name__ == "__main__":
     else:
         print("WARNING: Authentication is DISABLED. Server is open.")
         
-    uvicorn.run(
-        mcp,
-        host="0.0.0.0",
-        port=port,
-        log_level="debug"
+    asyncio.run(
+        mcp.run_sse_async(
+            host="0.0.0.0",
+            port=port,
+            log_level="debug"
+        )
     )
