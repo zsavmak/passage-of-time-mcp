@@ -4,6 +4,13 @@ import pytz
 import os
 from typing import Dict, Union, Optional, Literal
 from datetime import datetime, timedelta
+from fastapi import Request, Response
+
+# --- Environment Variables ---
+# Fetch the API key from environment variables. If not set, the server will be insecure.
+API_KEY = os.environ.get("MCP_API_KEY")
+if not API_KEY:
+    print("WARNING: MCP_API_KEY environment variable not set. The server is running without authentication.")
 
 mcp = FastMCP(
     name="Perception of Passage of Time",
@@ -20,6 +27,36 @@ To help you make computations about time, you have multiple other tools:
 IMPORTANT: All timestamps must use format "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD" for dates only. 
 Examples: "2024-01-15 14:30:00" or "2024-01-15". This ensures no ambiguity in parsing."""
 )
+
+# --- Authentication Middleware ---
+@mcp.app.middleware("http")
+async def check_api_key(request: Request, call_next):
+    """
+    Middleware to check for a valid API key in the X-API-Key header.
+    This protects all endpoints of the MCP server.
+    """
+    # If no API_KEY is configured on the server, bypass security.
+    # This allows for local development without setting up a key.
+    if not API_KEY:
+        response = await call_next(request)
+        return response
+
+    # Get the key from the request header
+    client_api_key = request.headers.get("X-API-Key")
+
+    # If the key is missing or incorrect, return a 401 Unauthorized error
+    if not client_api_key or client_api_key != API_KEY:
+        return Response(
+            content="Invalid or missing API Key",
+            status_code=401,
+            media_type="text/plain"
+        )
+    
+    # If the key is valid, proceed with the request
+    response = await call_next(request)
+    return response
+
+# --- Tool Definitions ---
 
 def parse_standard_timestamp(timestamp_str: str, timezone: str = "America/New_York") -> datetime:
     """
@@ -614,9 +651,15 @@ def format_duration(
 if __name__ == "__main__":
     import asyncio
     port = int(os.environ.get("PORT", 8000))
+    print(f"Starting MCP server on http://0.0.0.0:{port}")
+    if API_KEY:
+        print("Authentication is ENABLED. Provide the API key in the 'X-API-Key' header.")
+    else:
+        print("Authentication is DISABLED. The server is open.")
+        
     asyncio.run(
         mcp.run_sse_async(
-            host="0.0.0.0",  # Changed from 127.0.0.1 to allow external connections
+            host="0.0.0.0",
             port=port,
             log_level="debug"
         )
