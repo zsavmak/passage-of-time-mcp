@@ -469,10 +469,10 @@ if __name__ == "__main__":
     else:
         print("WARNING: Authentication is DISABLED. Server is open.")
         
-    async def run_with_delay():
-        await asyncio.sleep(50)
-        await mcp.run_sse_async(
-            host="0.0.0.0",
+    asyncio.run(
+        mcp.run_sse_async(
+            host="0.0.0.0", 
             port=port,
             log_level="debug"
         )
+    )
